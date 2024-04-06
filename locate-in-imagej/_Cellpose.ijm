@@ -1,0 +1,1 @@
+exec("bash", "path-to-runCellpose.bash")
