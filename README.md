@@ -1,6 +1,6 @@
 # cme-movie-analysis-2024
 
-This repository contains code used for image analysis in [insert publication info, DOI number]. For details and usage examples, please consult the above publication [insert Figure number].
+This repository contains code used for image analysis in [Sun et al. 2024, PLOS Biology] (https://doi.org/10.1371/journal.pbio.3002833). For details and usage examples, please consult the above publication, specifically Figure 1 and the "Image and data analysis" subsection of the Methods section.
 
 ## Installation
 1. Users will need a working installation of the Fiji distribution of ImageJ2, installable [here](https://imagej.net/software/fiji/).
@@ -24,3 +24,7 @@ This repository contains code used for image analysis in [insert publication inf
 - `LabelImageToAreaRoiManager_1.groovy` was adapted by Jonathan Kuo from [script](https://gist.github.com/NicoKiaru/ae00117cd6d33fea500d2867a5e669d9) written by Nicolas Chiaruttini
 - The color kymograph generation portion of `_Autoprocess.groovy` was adapted by Gean Hu from software developed by [Akamatsu et al. 2020](https://doi.org/10.7554/eLife.49840) (code located in [this repo](https://github.com/DrubinBarnes/Akamatsu_CME_manuscript))
 - Other files were written by Gean Hu, unless otherwise indicated
+
+## License
+BSD 3-clause License
+Copyright (c) 2024, the respective contributors, as outlined above.
