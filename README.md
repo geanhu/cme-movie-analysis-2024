@@ -1,6 +1,6 @@
 # cme-movie-analysis-2024
 
-This repository contains code used for image analysis in [Sun et al. 2024, PLOS Biology] (https://doi.org/10.1371/journal.pbio.3002833). For details and usage examples, please consult the above publication, specifically Figure 1 and the "Image and data analysis" subsection of the Methods section.
+This repository contains code used for image analysis in [Sun et al. 2024, PLOS Biology](https://doi.org/10.1371/journal.pbio.3002833). For details and usage examples, please consult the above publication, specifically Figure 1 and the "Image and data analysis" subsection of the Methods section.
 
 ## Installation
 1. Users will need a working installation of the Fiji distribution of ImageJ2, installable [here](https://imagej.net/software/fiji/).
