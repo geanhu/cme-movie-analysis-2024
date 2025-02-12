@@ -11,7 +11,7 @@ This repository contains code used for image analysis in [Sun et al. 2024, PLOS 
     1. Change the cellposeInput and cellposeOutput fields in `_Autoprocess.groovy` to folders that will store the input and output of Cellpose processing
     2. Change the path in `_Cellpose.ijm` to the location of `runCellpose.bash` is located
     3. Change the path in `runCellpose.bash` to the location of `run_cellpose_yeast_v0.2.ipynb`
-    4. In `runCellpose.bash`, update `bash`, `jupyter`, and `conda` to point to the absolute location of each command (find by typing `which <package name, e.g. jupyter>` in terminal)
+    4. In `runCellpose.bash`, update `bash`, `jupyter nbconvert`, and `conda` to point to the absolute location of each command (find by typing `which <package name, e.g. jupyter>` in terminal)
     5. In a terminal window, run `chmod +X runCellpose.bash` to make sure the bash file is executable
 
 ## Usage
