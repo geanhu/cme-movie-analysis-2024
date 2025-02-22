@@ -58,38 +58,35 @@ fileSelect()
 /**
 * Prompts the user to select a folder which contains all movies/images that should be processed with this
 * workflow. If an image file exists directly in the selected folder, the image will automatically be processed.
-* Otherwise, the user will be asked to select which movie in the subfolder to process, and given the option to view
-* the image(s) before making a choice. Selectchannels() is called on each movie needing processsing. Calls processCellpose()
+* Selectchannels() is called on each movie needing processsing. Calls processCellpose()
 * once every image in the directory is iterated through.
 *
 * @return aborts if directory input is malformed
 */
 void fileSelect() {
-    //Deletes files currently in the Cellpose input folder from previous runs
+    //deletes files in cellpose input to prevent re-processing
     File cellposeInputFile = new File(cellposeInput)
     for (File f: cellposeInputFile.listFiles(new ImageTypeFilter())) {
         f.delete()
     }
 
-    //Prompts user to select directory
+    //User selects directory
     def fileSelect = gui.newNonBlockingDialog("Select Folder/Files")
     fileSelect.addDirectoryField("Select folder to process", "~", 25);
-    fileSelect.addCheckbox("Open images before image selection", false);
     fileSelect.showDialog()
     directory = fileSelect.getNextString()
-    boolean openImages = fileSelect.getNextBoolean()
 
     //Errors directory selection if invalid
     File directoryFile = new File(directory);
     if (!directoryFile.isDirectory()) {
         error = new MessageDialog(new Frame(), "Error", "Selected directory is not a valid directory.");
-        return; //aborts
+        return //aborts
     }
 
     //Iterate over everything in the given folder
     File[] directoryFileList = directoryFile.listFiles(new ImageTypeFilter()) //Will reject non-image files
-    for (String name: ImageTypeFilter.rejectedFiles) {
-        print("Skipped " + name + " because it is not an image or folder")
+    for (String name: ImageTypeFilter.rejectedFiles) { //Print rejected files for debugging
+        println("Skipped " + name + " because it is not an image or folder")
     }
     for (File f: directoryFileList) {
         //if file is outside of a folder
@@ -99,48 +96,14 @@ void fileSelect() {
         } else if (f.isDirectory()) {//if is subdirectory of selected directory
             File[] subdirectoryFileList = f.listFiles(new ImageTypeFilter());
 
-            def imageSelect = null
-            if (userSelect) {
-                //skip if folder is empty
-                if (subdirectoryFileList.length == 0) {
-                    print("Skipped folder " + f.getName() + " because it is empty or does not contain any images")
-                    continue;
-                }
-
-                //open and show images
-                ArrayList<ImagePlus> openImagePlus = new ArrayList<>();
-                if (openImages) {
-                    for (File subFile : subdirectoryFileList) {
-                        ImagePlus openSubFile = IJ.open(subFile.getAbsolutePath())
-                        openSubFile.show()
-                        openImagePlus.add(openSubFile)
-                    }
-                }
-
-                //prompt user to select image(s)
-                imageSelect = new NonBlockingGenericDialog("Select Image(s) in Folder " + f.getName())
-                for (File subFile : subdirectoryFileList) {
-                    imageSelect.addCheckbox(subFile.getName(), false)
-                }
-                imageSelect.showDialog()
-                for (ImagePlus openImage : openImagePlus) {
-                    openImage.close()
-                }
-            }
-
             //selects channels for specified image
             for (File subFile: subdirectoryFileList) {
-                if (!userSelect || (imageSelect != null && imageSelect.getNextBoolean())) {
-                    selectChannels(subFile)
-                }
+                selectChannels(subFile)
             }
         }
 
-        //closes open image windows before moving on to the next image needing processing
         closeImageWindows()
     }
-
-    //starts processing images through Cellpose once file selection finishes
     processCellpose()
 }
 
@@ -153,38 +116,47 @@ void fileSelect() {
 *
 * @param imageFile the File object to separate channels from
 */
+//Separate channels into use for Cellpose & not
 void selectChannels(File imageFile) {
-    //Opens imageFile
+    //Open image
     ImporterOptions options = new ImporterOptions()
     options.setId(imageFile.getAbsolutePath())
     options.setSplitChannels(true)
     ImagePlus[] imageChannels = BF.openImagePlus(options)
 
-    //Finds the index of the green/GFP channel
-    int selectedChannel
+    //Use green channel, else use first channel
+    ImagePlus selectedChannel = imageChannels[0]
     for (ImagePlus channel: imageChannels) {
-        LUT[] luts = channel.getLuts()
-        if (luts[0].toString().contains("green")) {
-            selectedChannel = new ArrayList<ImagePlus>(Arrays.asList(imageChannels)).indexOf(channel)
+        if (findColor(channel) == "Green") {
+            selectedChannel = channel
         }
     }
 
-    //Iterates through all channels in image
+    //Save each channel as separate image
     for (ImagePlus channel: imageChannels) {
-        //Saves channel as a separate TIF image (if not already existing)
-        channel.show()
-        File newChannel = new File(imageFile.getParent() + File.separator + channel.getTitle())
-        String toAdd = newChannel.getAbsolutePath()
-        if (!newChannel.exists()) {
-            IJ.saveAs(channel, ".tif",  newChannel.getAbsolutePath() + ".tif")
-            toAdd += ".tif"
-        }
+        if (findColor(channel) != "Gray" && findColor(channel) != "") { //Skip DIC image
+            channel.show()
+            File newChannel = new File(imageFile.getParent() + File.separator + channel.getTitle() + ".tif")
+            String toAdd = newChannel.getAbsolutePath()
 
-        //Either queues the channel for processing by Cellpose first, or skips
-        if (Integer.valueOf(channel.getTitle().substring(channel.getTitle().length() - 5, channel.getTitle().length() - 4)) == selectedChannel) {
-            cellposeProcessList.add(toAdd)
-        } else {
-            otherChannelsList.add(toAdd)
+            //If is Z-stack, flatten first
+            if (channel.getNFrames() > 1 && channel.getNSlices() > 1) {
+                IJ.run("Z Project...", "projection=[Max Intensity] all")
+                if (selectedChannel == channel) {
+                    selectedChannel = IJ.getImage()
+                }
+                channel = IJ.getImage()
+            }
+
+            if (!newChannel.exists()) {
+                IJ.saveAs(channel, ".tif",  newChannel.getAbsolutePath())
+            }
+
+            if (selectedChannel == channel) {
+                cellposeProcessList.add(toAdd)
+            } else {
+                otherChannelsList.add(toAdd)
+            }
         }
     }
 }
@@ -205,30 +177,31 @@ void processCellpose() {
     for (String imagePath: cellposeProcessList) {
         //Create directory to save all processed image files
         File image = new File(imagePath)
-        String name = image.getName().substring(0, image.getName().size()-4)
+        String name = image.getName().substring(0, image.getName().lastIndexOf('.')) //Name without file ext
         File processedResults = new File(image.getParent() + File.separator + name + " Processed Results")
-        processedResults.mkdir()
+        if (!processedResults.exists()) {
+            processedResults.mkdir()
+        }
 
-        //Opens image
+        //Open image to process
         IJ.open(imagePath)
         ImagePlus original = IJ.getImage()
 
-        //Calls sbcb() on each image
+        //SBCB etc
         sbcb(original, name, processedResults)
 
         //Processes files for cellpose
         IJ.open(processedResults.getAbsolutePath() + File.separator + name + "_SBCB.tif")
 
-        IJ.run("Z Project...", "projection=[Sum Slices]") // Sum Z Projection
-        IJ.run("Median...", "radius=5") // Median filter
+        IJ.run("Z Project...", "projection=[Sum Slices]")
+        IJ.run("Median...", "radius=5")
 
-        IJ.run("Morphological Filters", "operation=Erosion element=Disk radius=4") //Erosion
+        IJ.run("Morphological Filters", "operation=Erosion element=Disk radius=4")
+        IJ.wait(10000)
 
-        //Saves processed files
         IJ.saveAs("tif", processedResults.getAbsolutePath() + File.separator + name + "_SBCBsumZradius5erosion4.tif")
         IJ.saveAs("tif", cellposeInput + name + "_SBCBsumZradius5erosion4.tif")
 
-        //Closes windows
         closeImageWindows()
         IJ.selectWindow("Results")
         IJ.run("Close")
@@ -284,7 +257,11 @@ void sbcb(ImagePlus image, String name, File processedResults) {
     IJ.saveAs(image, ".tif", processedResults.getAbsolutePath() + File.separator + name + "_SBCB.tif")
 
     //median
-    File kymoDir = new File(processedResults.getParent() + File.separator + name.substring(0, name.length()-5) + " Kymographs")
+    String basename = name
+    if (name.contains(" - C=")) {
+        basename = name.substring(0, name.lastIndexOf(" - C="))
+    }
+    File kymoDir = new File(processedResults.getParent() + File.separator + basename + " Kymographs")
     if (!kymoDir.exists()) {
         kymoDir.mkdir()
     }
@@ -293,11 +270,11 @@ void sbcb(ImagePlus image, String name, File processedResults) {
     IJ.run("Duplicate...", "duplicate")
     IJ.run("Median...", "radius=10 stack")
 
-    //subtract
     newImg = WindowManager.getCurrentImage()
     ImagePlus subtractedImg = ImageCalculator.run(originalImg, newImg, "subtract create stack")
     subtractedImg.show()
     IJ.run("Enhance Contrast", "saturated=0.35")
+    // IJ.run("Grays")
     IJ.saveAs("tif", kymoDir.getAbsolutePath() + File.separator + name + "_subMedian10.tif")
 
     //Z Project
@@ -322,13 +299,14 @@ void runCellpose() {
         f.delete()
     }
 
-    //calls bash script to run cellpose
+    //calls bash script to run cellpose / does not call jupyter directly because need to activate environment first
     Macro_Runner cellpose = new Macro_Runner()
     cellpose.runMacro("_Cellpose", null)
+    //Process other channels while Cellpose running
     processOtherChannels()
     //wait until cellpose finishes
     while (cellposeOutputFile.listFiles(new ImageTypeFilter()).size() == 0) {
-        wait(1000)
+        IJ.wait(5000)
     }
     afterCellpose()
 }
@@ -341,12 +319,14 @@ void processOtherChannels() {
     for (String imagePath: otherChannelsList) {
         //Create directory to save all processed image files
         File image = new File(imagePath)
-        String name = image.getName().substring(0, image.getName().length() - 4)
+        String name = image.getName().substring(0, image.getName().lastIndexOf('.'))
         File processedResults = new File(image.getParent() + File.separator + name + " Processed Results")
-        processedResults.mkdir()
+        if (!processedResults.exists()) {
+            processedResults.mkdir()
+        }
 
         IJ.open(imagePath)
-        original = IJ.getImage()
+        ImagePlus original = IJ.getImage()
 
         //SBCB etc
         sbcb(original, name, processedResults)
@@ -359,10 +339,14 @@ void processOtherChannels() {
  */
 void afterCellpose() {
     File cellposeOutputFile = new File(cellposeOutput)
+
+    //Check for Cellpose error
     if (cellposeOutputFile.listFiles(new ImageTypeFilter()).size() == 0) {
-        print("Cellpose did not run")
+        println("Cellpose did not run")
         return
     }
+
+
     File processedResults
     String name
     for (File f: cellposeOutputFile.listFiles(new ImageTypeFilter())) {
@@ -371,13 +355,16 @@ void afterCellpose() {
         boolean found = false
         for (String imagePath: cellposeProcessList) {
             File parent = new File(imagePath)
-            name = parent.getName().substring(0, parent.getName().length() - 4)
-            if ((f.getName().substring(0, f.getName().length()-33)).equals(name)) {
+            name = parent.getName().substring(0, parent.getName().lastIndexOf('.'))
+            String fileName = f.getName().substring(0, f.getName().lastIndexOf('_SBCB'))
+
+            if (fileName == name) {
                 found = true
                 processedResults = new File(parent.getParent() + File.separator + name + " Processed Results")
                 if (!processedResults.exists()) {
                     processedResults.mkdir()
-                    print("Error: Could not find where " + f.getName() + " is originally located")
+                    println("Error: Could not find where " + f.getName() + " is originally located")
+                    return
                 }
                 cellposeMask.show()
                 IJ.saveAs(cellposeMask, "tif", processedResults.getAbsolutePath() + File.separator + f.getName())
@@ -385,11 +372,11 @@ void afterCellpose() {
             }
         }
         if (!found) {
-            print("Could not find matching image path for " + f.getName().substring(0, f.getName().length()-33) + ".tif")
-            break;
+            println("Could not find matching image path for " + f.getName().substring(0, f.getName().lastIndexOf('_SBCB')) + ".tif")
+            return
         }
 
-        //Fill holes - disable this if the following programs are not installed
+        //fill holes
         IJ.run("Fill Holes (Binary/Gray)")
         IJ.run("glasbey")
         IJ.saveAs("tif", processedResults.getAbsolutePath() + File.separator + f.getName() + "_filledHoles.tif")
@@ -402,9 +389,14 @@ void afterCellpose() {
 
         //create kymographs
         closeImageWindows()
-        File kymoDir = new File(processedResults.getParent() + File.separator + name.substring(0, name.length()-5) + " Kymographs")
+        String basename = name
+        if (name.contains(" - C=")) {
+            basename = name.substring(0, name.lastIndexOf(" - C="))
+        }
+        File kymoDir = new File(processedResults.getParent() + File.separator + basename + " Kymographs")
         if (!kymoDir.exists()) {
-            print("Could not find kymograph directory " + kymoDir.getName())
+            println("Could not find kymograph directory " + kymoDir.getName())
+            break
         }
         createColorKymographs(kymoDir, roimanager)
 
@@ -434,24 +426,25 @@ void createColorKymographs(File kymoDir, RoiManager roimanager) {
             channel.hide()
         }
     }
+    println(kymoDir.getName() + " has " + channelImages.size() + " colors")
     channelImages.sort(new channelComparator())
 
     //Iterate through ROIs
     for (int i = 0; i < roimanager.getCount(); i++) {
         //create kymographs of each color
         ArrayList<String> colors = new ArrayList<>()
+        ArrayList<ImagePlus> channelsToRemove = new ArrayList<>()
         for (ImagePlus channel: channelImages) {
             channel.show()
-            LUT[] luts = channel.getLuts()
-            if (luts[0].toString().contains("green") || luts[0].toString().contains("#38ff00") || luts[0].toString().contains("#8dff00")) {
+            if (findColor(channel) == "Green") {
                 colors.add("Green")
-            } else if (luts[0].toString().contains("blue") || luts[0].toString().contains("#0066ff")) {
+            } else if (findColor(channel) == "Blue") {
                 colors.add("Blue")
-            } else if (luts[0].toString().contains("red")) {
+            } else if (findColor(channel) == "Red") {
                 colors.add("Red")
             } else {
-                print("Unknown color: " + luts[0].toString())
-                return
+                channelsToRemove.add(channel)
+                continue
             }
 
             roimanager.select(channel, i)
@@ -464,6 +457,10 @@ void createColorKymographs(File kymoDir, RoiManager roimanager) {
             tempImg1.close()
             tempImg2.close()
             channel.hide()
+        }
+        for (ImagePlus channel: channelsToRemove) {
+            channelImages.remove(channel)
+            println("Not generating kymograph for " + channel.getShortTitle())
         }
 
         //stack images into composite
@@ -486,7 +483,7 @@ void createColorKymographs(File kymoDir, RoiManager roimanager) {
         } else if (channelImages.size() == 1) {
             IJ.run(colors.get(0))
         } else {
-            print("Image has " + channelImages.size() + " colors, not 1, 2, or 3")
+            println("Image has " + channelImages.size() + " colors, not 1, 2, or 3")
             return
         }
         IJ.saveAs("TIF", kymoDir.getAbsolutePath() + File.separator + (i + 1).toString() + "_composite_kymograph")
@@ -503,12 +500,43 @@ void closeImageWindows() {
     }
 }
 
+//Find color from open image
+String findColor(ImagePlus image) {
+    LUT luts = image.getLuts()[0]
+    String lutString = luts.toString()
+
+    String red = "#ff[0-9A-F]{4}"
+    Pattern redPattern = Pattern.compile(red, Pattern.CASE_INSENSITIVE)
+    Matcher redMatcher = redPattern.matcher(lutString)
+
+    String green = "#[0-9A-F]{2}ff[0-9A-F]{2}"
+    Pattern greenPattern = Pattern.compile(green, Pattern.CASE_INSENSITIVE)
+    Matcher greenMatcher = greenPattern.matcher(lutString)
+
+    String blue = "#[0-9A-F]{4}ff"
+    Pattern bluePattern = Pattern.compile(blue, Pattern.CASE_INSENSITIVE)
+    Matcher blueMatcher = bluePattern.matcher(lutString)
+
+    if (lutString.contains("green") || greenMatcher.find()) {
+        return "Green"
+    } else if (lutString.contains("blue") || blueMatcher.find()) {
+        return "Blue"
+    } else if (lutString.contains("red") || redMatcher.find()) {
+        return "Red"
+    } else if (lutString.contains("white")) {
+        return "Gray"
+    } else {
+        println("Unknown color: " + lutString)
+        return ""
+    }
+}
+
 //region --UTILITY CLASSES--
 
 class ImageTypeFilter implements FileFilter {
 
     //change accepted image file formats here
-    ArrayList<String> fileTypes = new ArrayList<>(Arrays.asList("tif", "tiff", "nd2"));
+    ArrayList<String> fileTypes = new ArrayList<>(Arrays.asList("tif", "tiff", "nd2", "czi"));
 
     static ArrayList<String> rejectedFiles = new ArrayList<>();
 
@@ -525,7 +553,7 @@ class ImageTypeFilter implements FileFilter {
 
         for (String fileType: fileTypes) {
             if (pathname.contains(fileType)) {
-                if (!pathname.contains("DIC")) {
+                if (!pathname.contains("DIC") && !f.getName().startsWith(".")) { //reject DIC images
                     return true;
                 }
             }
@@ -541,9 +569,13 @@ class channelComparator implements Comparator {
     @Override
     int compare(Object o1, Object o2) {
         o1 = (ImagePlus) o1
-        int channel1 = Integer.valueOf(o1.getShortTitle().substring(o1.getShortTitle().length() - 13, o1.getShortTitle().length() - 12))
+        int channel1index = o1.getShortTitle().lastIndexOf("=")
+        int channel1 = Integer.valueOf(o1.getShortTitle().substring(channel1index + 1, channel1index + 2))
+
         o2 = (ImagePlus) o2
-        int channel2 = Integer.valueOf(o2.getShortTitle().substring(o2.getShortTitle().length() - 13, o2.getShortTitle().length() - 12))
+        int channel2index = o2.getShortTitle().lastIndexOf("=")
+        int channel2 = Integer.valueOf(o2.getShortTitle().substring(channel2index + 1, channel2index + 2))
+
         return channel1 - channel2
     }
 }
