@@ -13,10 +13,9 @@ import ij.plugin.Macro_Runner
 import ij.process.LUT
 import loci.plugins.BF
 import loci.plugins.in.ImporterOptions
-
+import java.util.regex.Pattern
+import java.util.regex.Matcher
 import java.awt.Frame
-import java.text.DecimalFormat
-import java.math.RoundingMode
 
 //region -- CHANGE VARIABLES HERE --
 
