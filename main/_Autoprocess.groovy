@@ -16,6 +16,7 @@ import loci.plugins.in.ImporterOptions
 import java.util.regex.Pattern
 import java.util.regex.Matcher
 import java.awt.Frame
+import java.util.HashMap
 
 //region -- CHANGE VARIABLES HERE --
 
@@ -199,7 +200,9 @@ void processCellpose() {
         IJ.wait(10000)
 
         IJ.saveAs("tif", processedResults.getAbsolutePath() + File.separator + name + "_SBCBsumZradius5erosion4.tif")
-        IJ.saveAs("tif", cellposeInput + name + "_SBCBsumZradius5erosion4.tif")
+        //Save in cellposeInput as index of file in cellposeProcessList array instead, to prevent clashing
+        //of non-unique names in different folders
+        IJ.saveAs("tif", cellposeInput + cellposeProcessList.indexOf(imagePath) + ".tif")
 
         closeImageWindows()
         IJ.selectWindow("Results")
@@ -351,29 +354,12 @@ void afterCellpose() {
     for (File f: cellposeOutputFile.listFiles(new ImageTypeFilter())) {
         //save in correct folder
         ImagePlus cellposeMask = BF.openImagePlus(f.getAbsolutePath())[0]
-        boolean found = false
-        for (String imagePath: cellposeProcessList) {
-            File parent = new File(imagePath)
-            name = parent.getName().substring(0, parent.getName().lastIndexOf('.'))
-            String fileName = f.getName().substring(0, f.getName().lastIndexOf('_SBCB'))
-
-            if (fileName == name) {
-                found = true
-                processedResults = new File(parent.getParent() + File.separator + name + " Processed Results")
-                if (!processedResults.exists()) {
-                    processedResults.mkdir()
-                    println("Error: Could not find where " + f.getName() + " is originally located")
-                    return
-                }
-                cellposeMask.show()
-                IJ.saveAs(cellposeMask, "tif", processedResults.getAbsolutePath() + File.separator + f.getName())
-                break;
-            }
-        }
-        if (!found) {
-            println("Could not find matching image path for " + f.getName().substring(0, f.getName().lastIndexOf('_SBCB')) + ".tif")
-            return
-        }
+        int index = (int) f.getName().substring(0, f.getName().lastIndexOf('.'))
+        File parent = new File(cellposeProcessList.get(index))
+        String name = parent.getName().substring(0, parent.getName().lastIndexOf('.'))
+        processedResults = new File(parent.getParent() + File.separator + name + " Processed Results")
+        cellposeMask.show()
+        IJ.saveAs(cellposeMask, "tif", processedResults.getAbsolutePath() + File.separator + f.getName())
 
         //fill holes
         IJ.run("Fill Holes (Binary/Gray)")
