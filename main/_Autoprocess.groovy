@@ -16,7 +16,6 @@ import loci.plugins.in.ImporterOptions
 import java.util.regex.Pattern
 import java.util.regex.Matcher
 import java.awt.Frame
-import java.util.HashMap
 
 //region -- CHANGE VARIABLES HERE --
 
